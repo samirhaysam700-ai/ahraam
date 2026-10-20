@@ -55,7 +55,6 @@ jobs:
 
       - name: 🛠️ Upgrade Android SDK & Gradle for pdfview
         run: |
-          # 1. تحديث Gradle Wrapper
           python3 <<'PY'
           import pathlib
           path = pathlib.Path("android/gradle/wrapper/gradle-wrapper.properties")
@@ -72,7 +71,6 @@ jobs:
           print("✅ Gradle wrapper updated to 8.7")
           PY
 
-          # 2. تحديث compileSdk و targetSdk (استبدال السطر بالكامل)
           python3 <<'PY'
           import re, pathlib
           path = pathlib.Path("android/app/build.gradle")
@@ -81,21 +79,20 @@ jobs:
           
           content = path.read_text()
           
-          # استبدال أي سطر يبدأ بـ compileSdk أو compileSdkVersion
-          content = re.sub(r'^\s*compileSdk(Version)?\s*[=:]?\s*\d+', '    compileSdk 35', content, flags=re.MULTILINE)
-          # استبدال أي سطر يبدأ بـ targetSdk أو targetSdkVersion
-          content = re.sub(r'^\s*targetSdk(Version)?\s*[=:]?\s*\d+', '        targetSdk 35', content, flags=re.MULTILINE)
+          content = re.sub(r'^\s*compileSdk\s*=\s*flutter\.compileSdkVersion', '    compileSdk = 35', content, flags=re.MULTILINE)
+          content = re.sub(r'^\s*targetSdk\s*=\s*flutter\.targetSdkVersion', '        targetSdk = 35', content, flags=re.MULTILINE)
+          
+          content = re.sub(r'^\s*compileSdk(Version)?\s*[=:]?\s*\d+', '    compileSdk = 35', content, flags=re.MULTILINE)
+          content = re.sub(r'^\s*targetSdk(Version)?\s*[=:]?\s*\d+', '        targetSdk = 35', content, flags=re.MULTILINE)
           
           path.write_text(content)
           print("✅ compileSdk & targetSdk set to 35")
           
-          # طباعة القيم الجديدة للتأكيد
           for i, line in enumerate(content.splitlines(), 1):
               if 'compileSdk' in line or 'targetSdk' in line:
                   print(f"   Line {i}: {line.strip()}")
           PY
 
-          # 3. تحديث AGP في settings.gradle
           python3 <<'PY'
           import re, pathlib
           path = pathlib.Path("android/settings.gradle")
@@ -112,9 +109,8 @@ jobs:
           print("✅ AGP set to 8.6.0")
           PY
 
-          # 4. التحقق النهائي
           echo "=== FINAL CHECK ==="
-          if grep -q "compileSdk 35" android/app/build.gradle; then
+          if grep -Eq "compileSdk\s*=?\s*35" android/app/build.gradle; then
             echo "✅ compileSdk 35 confirmed"
           else
             echo "❌ compileSdk 35 NOT found"
