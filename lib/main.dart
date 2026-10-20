@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'screens/login_screen.dart';
+import 'screens/splash_screen.dart';
 
 void main() {
   runApp(const AhramApp());
@@ -15,8 +15,7 @@ class AhramApp extends StatelessWidget {
       title: 'قارئ الأهرام',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.red,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red.shade700),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFD32F2F)),
         useMaterial3: true,
       ),
       localizationsDelegates: const [
@@ -26,13 +25,8 @@ class AhramApp extends StatelessWidget {
       ],
       supportedLocales: const [Locale('ar', 'EG')],
       locale: const Locale('ar', 'EG'),
-      builder: (context, child) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: child!,
-        );
-      },
-      home: const LoginScreen(),
+      builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+      home: const SplashScreen(),
     );
   }
 }
