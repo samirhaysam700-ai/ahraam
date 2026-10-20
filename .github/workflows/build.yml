@@ -25,6 +25,15 @@ jobs:
       - name: Generate platform folders
         run: flutter create --org com.ahram --project-name ahram_reader .
 
+      - name: Update Kotlin version
+        run: |
+          if [ -f android/settings.gradle ]; then
+            sed -i "s/id 'org.jetbrains.kotlin.android' version '[^']*'/id 'org.jetbrains.kotlin.android' version '2.0.10'/" android/settings.gradle
+          fi
+          if [ -f android/build.gradle ]; then
+            sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '2.0.10'/" android/build.gradle
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
