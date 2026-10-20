@@ -35,20 +35,14 @@ class AhramService {
 
   // ========== تسجيل الدخول ==========
   Future<void> login(String username, String password) async {
-    // 1. GET صفحة الدخول لجلب التوكن والكوكيز
+    // 1. جلب صفحة الدخول والتوكن
     final loginResp = await _dio.get(
       '/ar/Login/Login',
       options: Options(
         headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
-              'image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Upgrade-Insecure-Requests': '1',
-          'sec-fetch-site': 'same-origin',
-          'sec-fetch-mode': 'navigate',
-          'sec-fetch-user': '?1',
-          'sec-fetch-dest': 'document',
         },
-        validateStatus: (s) => s != null && s < 500,
       ),
     );
 
@@ -56,55 +50,62 @@ class AhramService {
     final tokenMatch = RegExp(
       r'name="__RequestVerificationToken"[^>]*?value="([^"]+)"',
     ).firstMatch(html);
+    
     if (tokenMatch == null) {
       throw Exception('لم يتم العثور على توكن الأمان في صفحة الدخول');
     }
     final token = tokenMatch.group(1)!;
 
-    // 2. بناء جسم الطلب
-    final body = Uri(queryParameters: {
+    // 2. تجهيز بيانات الدخول
+    final body = {
       'UserName': username,
       'UserPw': password,
       '__RequestVerificationToken': token,
-    }).query;
+    };
 
-    // 3. POST الدخول مع ترويسات المتصفح الكاملة
+    // 3. طلب الدخول - مع تعطيل الـ Redirect التلقائي
     final resp = await _dio.post(
       '/ar/Login/Login',
       data: body,
       options: Options(
         contentType: Headers.formUrlEncodedContentType,
-        followRedirects: true,
-        validateStatus: (s) => s != null && s < 600,
+        followRedirects: false, // 👈 السطر ده هو السر
+        validateStatus: (s) => s != null && s < 400, // 👈 السماح بـ 200 و 302 فقط
         headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
-              'image/avif,image/webp,image/apng,*/*;q=0.8,'
-              'application/signed-exchange;v=b3;q=0.7',
           'Origin': 'https://store.ahram.org.eg',
           'Referer': 'https://store.ahram.org.eg/ar/Login/Login',
           'Upgrade-Insecure-Requests': '1',
-          'sec-fetch-site': 'same-origin',
-          'sec-fetch-mode': 'navigate',
-          'sec-fetch-user': '?1',
-          'sec-fetch-dest': 'document',
         },
       ),
     );
 
-    // 4. التحقق من النجاح (السيرفر بيرجع للصفحة الرئيسية عند النجاح)
-    final finalUrl = resp.realUri.toString().toLowerCase();
-    if (finalUrl.contains('/login')) {
+    // 4. التحقق من النجاح
+    // السيرفر بيرجع 302 (Redirect) لو الدخول نجح
+    // وبيرجع 200 لو الدخول فشل (عشان يعرض صفحة اللوجين تاني)
+    if (resp.statusCode == 200) {
       final respBody = resp.data?.toString() ?? '';
       final errMatch = RegExp(
         r'class="[^"]*(?:error|danger|validation|alert)[^"]*"[^>]*>\s*([^<]+)',
       ).firstMatch(respBody);
+      
       final errMsg = errMatch?.group(1)?.trim();
       if (errMsg != null && errMsg.isNotEmpty) {
         throw Exception('فشل تسجيل الدخول: $errMsg');
       }
-      throw Exception(
-          'فشل تسجيل الدخول - تحقق من البيانات\nURL: ${resp.realUri.path}');
+      
+      // لو مفيش رسالة خطأ واضحة بس الحالة 200، يبقى فشل
+      throw Exception('فشل تسجيل الدخول - تأكد من صحة اسم المستخدم وكلمة المرور');
     }
+
+    // لو وصلنا هنا، يبقى الحالة 302 (أو 301) والدخول نجح
+    // بنجهز Dio عشان يروح للصفحة الرئيسية عشان ياخد الكوكيز بتاعت الجلسة
+    await _dio.get(
+      '/',
+      options: Options(
+        followRedirects: true,
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
   }
 
   // ========== جلب الإصدارات ==========
