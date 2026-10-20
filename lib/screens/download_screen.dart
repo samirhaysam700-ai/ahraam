@@ -1,172 +1,111 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:printing/printing.dart';
 import '../services/ahram_service.dart';
 import '../models/issue.dart';
+import 'pdf_viewer_screen.dart';
 
 class DownloadScreen extends StatefulWidget {
   final AhramService service;
   final Issue issue;
-  const DownloadScreen({
-    super.key,
-    required this.service,
-    required this.issue,
-  });
+  const DownloadScreen({super.key, required this.service, required this.issue});
 
   @override
   State<DownloadScreen> createState() => _DownloadScreenState();
 }
 
 class _DownloadScreenState extends State<DownloadScreen> {
-  final List<String> _log = [];
-  int _currentPage = 0;
-  bool _running = true;
-  bool _done = false;
+  double _progress = 0;
+  String _status = 'جاري التجهيز...';
+  bool _isDone = false;
   String? _error;
-  Uint8List? _pdfBytes;
+  String? _savedPath;
 
   @override
   void initState() {
     super.initState();
-    _run();
+    _download();
   }
 
-  Future<void> _run() async {
+  Future<void> _download() async {
     try {
-      _addLog('فتح صفحة القارئ...');
-      await widget.service
-          .activateSession(widget.issue.flipId, widget.issue.date);
-      _addLog('✓ تفعيل الجلسة');
-
-      _addLog('بدء تحميل الصفحات...');
-      final images = await widget.service.downloadPages(
+      final path = await widget.service.downloadAndSavePdf(
         widget.issue.flipId,
         widget.issue.date,
-        onLog: (page, msg) {
-          _currentPage = page;
-          _addLog(msg);
+        onProgress: (progress, msg) {
+          if (mounted) setState(() { _progress = progress; _status = msg; });
         },
       );
-
-      if (images.isEmpty) {
-        throw Exception('لم يتم تحميل أي صفحة');
+      
+      if (mounted) {
+        setState(() { _savedPath = path; _isDone = true; });
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PdfViewerScreen(filePath: path, title: widget.issue.displayDate)));
+          }
+        });
       }
-
-      _addLog('بناء PDF من ${images.length} صفحة...');
-      final pdf = await widget.service.buildPdf(images);
-
-      setState(() {
-        _pdfBytes = pdf;
-        _done = true;
-        _running = false;
-      });
-      _addLog('✓ تم إنشاء PDF '
-          '(${(pdf.length / 1024 / 1024).toStringAsFixed(1)} MB)');
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _running = false;
-      });
-      _addLog('❌ $e');
+      if (mounted) setState(() => _error = e.toString());
     }
-  }
-
-  void _addLog(String msg) {
-    if (!mounted) return;
-    setState(() => _log.add(msg));
-  }
-
-  Future<void> _share() async {
-    if (_pdfBytes == null) return;
-    await Printing.sharePdf(
-      bytes: _pdfBytes!,
-      filename: widget.issue.fileName,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.issue.displayDate),
-        backgroundColor: Colors.red.shade700,
-        foregroundColor: Colors.white,
-      ),
-      body: Column(
-        children: [
-          if (_running)
-            LinearProgressIndicator(
-              backgroundColor: Colors.red.shade100,
-              valueColor:
-                  AlwaysStoppedAnimation<Color>(Colors.red.shade700),
-            ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.grey.shade100,
-            child: Row(
-              children: [
-                Icon(
-                  _done
-                      ? Icons.check_circle
-                      : _error != null
-                          ? Icons.error
-                          : Icons.downloading,
-                  color: _done
-                      ? Colors.green
-                      : _error != null
-                          ? Colors.red
-                          : Colors.red.shade700,
+      appBar: AppBar(title: Text(widget.issue.displayDate), backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: _error != null
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error, color: Colors.red, size: 64),
+                    const SizedBox(height: 16),
+                    Text(_error!, textAlign: TextAlign.center),
+                    const SizedBox(height: 24),
+                    ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('رجوع')),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 140, height: 140,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CircularProgressIndicator(
+                            value: _progress == 0 ? null : _progress,
+                            strokeWidth: 10,
+                            backgroundColor: Colors.grey.shade200,
+                            valueColor: AlwaysStoppedAnimation<Color>(_isDone ? Colors.green : Colors.red.shade700),
+                          ),
+                          Center(
+                            child: _isDone
+                                ? const Icon(Icons.check, color: Colors.green, size: 56)
+                                : Text('${(_progress * 100).toInt()}%', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                    Text(_status, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600), textAlign: TextAlign.center),
+                    if (_isDone) ...[
+                      const SizedBox(height: 40),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          if (_savedPath != null) {
+                            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PdfViewerScreen(filePath: _savedPath!, title: widget.issue.displayDate)));
+                          }
+                        },
+                        icon: const Icon(Icons.menu_book),
+                        label: const Text('قراءة الآن', style: TextStyle(fontSize: 16)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
+                      ),
+                    ],
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    _done
-                        ? 'اكتمل التحميل (${_currentPage} صفحة)'
-                        : _error != null
-                            ? 'حدث خطأ'
-                            : 'جاري التحميل... صفحة $_currentPage',
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Container(
-              color: Colors.black87,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(8),
-                itemCount: _log.length,
-                itemBuilder: (_, i) => Text(
-                  _log[i],
-                  style: const TextStyle(
-                      color: Colors.greenAccent,
-                      fontFamily: 'monospace',
-                      fontSize: 12),
-                ),
-              ),
-            ),
-          ),
-          if (_done)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton.icon(
-                  onPressed: _share,
-                  icon: const Icon(Icons.share),
-                  label: const Text('حفظ / مشاركة PDF',
-                      style: TextStyle(fontSize: 18)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
