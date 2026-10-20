@@ -5,7 +5,8 @@ import 'download_screen.dart';
 
 class IssuesScreen extends StatefulWidget {
   final AhramService service;
-  const IssuesScreen({super.key, required this.service});
+  final String? username;
+  const IssuesScreen({super.key, required this.service, this.username});
 
   @override
   State<IssuesScreen> createState() => _IssuesScreenState();
@@ -34,7 +35,7 @@ class _IssuesScreenState extends State<IssuesScreen> {
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -42,7 +43,7 @@ class _IssuesScreenState extends State<IssuesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('إصداراتك'),
+        title: const Text('مكتبتك'),
         backgroundColor: Colors.red.shade700,
         foregroundColor: Colors.white,
         actions: [
@@ -53,52 +54,153 @@ class _IssuesScreenState extends State<IssuesScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? _buildLoading()
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red)),
-                  ),
-                )
+              ? _buildError()
               : _issues.isEmpty
-                  ? const Center(child: Text('لا توجد إصدارات'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _issues.length,
-                      itemBuilder: (_, i) {
-                        final issue = _issues[i];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.red.shade700,
-                              foregroundColor: Colors.white,
-                              child: Text('${i + 1}'),
-                            ),
-                            title: Text(issue.displayDate,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            subtitle: Text(
-                                'فلِب: ${issue.flipId} • ${issue.date}'),
-                            trailing: const Icon(Icons.download),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => DownloadScreen(
-                                    service: widget.service,
-                                    issue: issue,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
+                  ? _buildEmpty()
+                  : _buildList(),
+    );
+  }
+
+  Widget _buildLoading() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.red.shade700),
+            strokeWidth: 4,
+          ),
+          const SizedBox(height: 24),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              widget.username != null
+                  ? 'أهلاً ${widget.username} 👋\nجاري تحميل مكتبتك...'
+                  : 'جاري تحميل مكتبتك...',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade700,
+                height: 1.6,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.red.shade400),
+            const SizedBox(height: 16),
+            Text(_error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red)),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.shade700,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.inbox_outlined, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          const Text('لا توجد إصدارات في مكتبتك',
+              style: TextStyle(fontSize: 18, color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    return Column(
+      children: [
+        if (widget.username != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: Colors.red.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.account_circle, color: Colors.red.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'أهلاً بك، ${widget.username}',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade900,
                     ),
+                  ),
+                ),
+                Text(
+                  '${_issues.length} إصدار',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.red.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: _issues.length,
+            itemBuilder: (_, i) {
+              final issue = _issues[i];
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.red.shade700,
+                    foregroundColor: Colors.white,
+                    child: Text('${i + 1}'),
+                  ),
+                  title: Text(issue.displayDate,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text('فلِب: ${issue.flipId} • ${issue.date}'),
+                  trailing: const Icon(Icons.download),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => DownloadScreen(
+                          service: widget.service,
+                          issue: issue,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
