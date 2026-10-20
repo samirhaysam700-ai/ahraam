@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/ahram_service.dart';
-import 'issues_screen.dart';
+import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final AhramService service;
+  const LoginScreen({super.key, required this.service});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -28,47 +29,19 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
+    setState(() { _loading = true; _error = null; });
     try {
-      final service = await AhramService.create();
       final username = _userCtrl.text.trim();
-      await service.login(username, _passCtrl.text);
+      await widget.service.login(username, _passCtrl.text);
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('username', username);
 
       if (!mounted) return;
-
-      // 🎉 إظهار رسالة نجاح
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
-              Text('تم تسجيل الدخول بنجاح', style: TextStyle(fontSize: 16)),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
+        const SnackBar(content: Text('تم تسجيل الدخول بنجاح'), backgroundColor: Colors.green),
       );
-
-      // 🚀 الانتقال مباشرة لصفحة المكتبة
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => IssuesScreen(
-            service: service,
-            username: username,
-          ),
-        ),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HomeScreen(service: widget.service)));
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
     } finally {
@@ -83,61 +56,38 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 60),
               Icon(Icons.menu_book, size: 90, color: Colors.red.shade700),
               const SizedBox(height: 16),
-              const Text('قارئ الأهرام',
-                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+              const Text('قارئ الأهرام', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
               TextField(
                 controller: _userCtrl,
                 textAlign: TextAlign.right,
-                decoration: const InputDecoration(
-                  labelText: 'اسم المستخدم',
-                  prefixIcon: Icon(Icons.person),
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'اسم المستخدم', prefixIcon: Icon(Icons.person), border: OutlineInputBorder()),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: _passCtrl,
                 obscureText: true,
                 textAlign: TextAlign.right,
-                decoration: const InputDecoration(
-                  labelText: 'كلمة المرور',
-                  prefixIcon: Icon(Icons.lock),
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'كلمة المرور', prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
               ),
               const SizedBox(height: 24),
-              if (_error != null) ...[
+              if (_error != null)
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    border: Border.all(color: Colors.red.shade200),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(_error!,
-                      style: TextStyle(color: Colors.red.shade900)),
+                  decoration: BoxDecoration(color: Colors.red.shade50, border: Border.all(color: Colors.red.shade200), borderRadius: BorderRadius.circular(8)),
+                  child: Text(_error!, style: TextStyle(color: Colors.red.shade900)),
                 ),
-                const SizedBox(height: 16),
-              ],
+              const SizedBox(height: 16),
               SizedBox(
-                width: double.infinity,
-                height: 52,
+                width: double.infinity, height: 52,
                 child: ElevatedButton(
                   onPressed: _loading ? null : _login,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade700,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: _loading
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('تسجيل الدخول',
-                          style: TextStyle(fontSize: 18)),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade700, foregroundColor: Colors.white),
+                  child: _loading ? const CircularProgressIndicator(color: Colors.white) : const Text('تسجيل الدخول', style: TextStyle(fontSize: 18)),
                 ),
               ),
             ],
