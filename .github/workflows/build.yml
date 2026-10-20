@@ -55,51 +55,66 @@ jobs:
 
       - name: 🛠️ Upgrade Android SDK & Gradle for pdfview
         run: |
-          # 1. رفع compileSdk و targetSdk في app/build.gradle
+          echo "=== BEFORE ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          python3 <<'PY'
+          import pathlib
+          path = pathlib.Path("android/gradle/wrapper/gradle-wrapper.properties")
+          if not path.exists():
+              raise SystemExit("❌ gradle-wrapper.properties not found")
+
+          lines = path.read_text().splitlines()
+          found = False
+          new_lines = []
+          for line in lines:
+              if line.strip().startswith('distributionUrl'):
+                  new_lines.append('distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip')
+                  found = True
+              else:
+                  new_lines.append(line)
+
+          if not found:
+              new_lines.append('distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-all.zip')
+
+          path.write_text('\n'.join(new_lines) + '\n')
+          print("✅ Gradle wrapper updated to 8.7")
+          PY
+
           python3 <<'PY'
           import re, pathlib
           path = pathlib.Path("android/app/build.gradle")
-          if not path.exists():
-              path = pathlib.Path("android/app/build.gradle.kts")
           if path.exists():
               content = path.read_text()
-              content = re.sub(r'compileSdk\s*[=:]?\s*\d+', 'compileSdk 35', content)
-              content = re.sub(r'targetSdk\s*[=:]?\s*\d+', 'targetSdk 35', content)
+              content = re.sub(r'compileSdk(Version)?\s*[=:]?\s*\d+', 'compileSdk 35', content)
+              content = re.sub(r'targetSdk(Version)?\s*[=:]?\s*\d+', 'targetSdk 35', content)
               path.write_text(content)
-              print(f"✅ Updated SDK versions in {path.name}")
-          else:
-              print("❌ build.gradle not found")
+              print("✅ compileSdk & targetSdk = 35")
           PY
 
-          # 2. رفع AGP في settings.gradle
           python3 <<'PY'
           import re, pathlib
           path = pathlib.Path("android/settings.gradle")
-          if not path.exists():
-              path = pathlib.Path("android/settings.gradle.kts")
           if path.exists():
               content = path.read_text()
-              content = re.sub(r'com\.android\.application["\']\s*\)?\s*version\s*["\'][^"\']+["\']',
-                               'com.android.application" version "8.6.0"', content)
+              content = re.sub(
+                  r'com\.android\.application["\']\s*\)?\s*version\s*["\'][^"\']+["\']',
+                  'com.android.application" version "8.6.0"',
+                  content
+              )
               path.write_text(content)
-              print(f"✅ Updated AGP in {path.name}")
-          else:
-              print("❌ settings.gradle not found")
+              print("✅ AGP = 8.6.0")
           PY
 
-          # 3. رفع Gradle wrapper
-          python3 <<'PY'
-          import re, pathlib
-          path = pathlib.Path("android/gradle/wrapper/gradle-wrapper.properties")
-          if path.exists():
-              content = path.read_text()
-              content = re.sub(r'distributionUrl\s*=\s*https\://services\.gradle\.org/distributions/gradle-[^/]+-bin\.zip',
-                               'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip', content)
-              path.write_text(content)
-              print("✅ Updated Gradle wrapper to 8.7")
-          else:
-              print("❌ gradle-wrapper.properties not found")
-          PY
+          echo "=== AFTER ==="
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          if grep -q "gradle-8.7" android/gradle/wrapper/gradle-wrapper.properties; then
+            echo "✅ Gradle wrapper patched successfully"
+          else
+            echo "❌ Gradle wrapper patch FAILED"
+            exit 1
+          fi
 
       - name: Force Kotlin 2.0.10
         run: |
