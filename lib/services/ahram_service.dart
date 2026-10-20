@@ -35,31 +35,75 @@ class AhramService {
 
   // ========== تسجيل الدخول ==========
   Future<void> login(String username, String password) async {
-    final loginResp = await _dio.get('/ar/Login/Login');
+    // 1. GET صفحة الدخول لجلب التوكن والكوكيز
+    final loginResp = await _dio.get(
+      '/ar/Login/Login',
+      options: Options(
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
+              'image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Upgrade-Insecure-Requests': '1',
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-user': '?1',
+          'sec-fetch-dest': 'document',
+        },
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
+
     final html = loginResp.data.toString();
     final tokenMatch = RegExp(
       r'name="__RequestVerificationToken"[^>]*?value="([^"]+)"',
     ).firstMatch(html);
     if (tokenMatch == null) {
-      throw Exception('لم يتم العثور على توكن الأمان');
+      throw Exception('لم يتم العثور على توكن الأمان في صفحة الدخول');
     }
+    final token = tokenMatch.group(1)!;
 
+    // 2. بناء جسم الطلب
+    final body = Uri(queryParameters: {
+      'UserName': username,
+      'UserPw': password,
+      '__RequestVerificationToken': token,
+    }).query;
+
+    // 3. POST الدخول مع ترويسات المتصفح الكاملة
     final resp = await _dio.post(
       '/ar/Login/Login',
-      data: {
-        'UserName': username,
-        'UserPw': password,
-        '__RequestVerificationToken': tokenMatch.group(1),
-      },
+      data: body,
       options: Options(
         contentType: Headers.formUrlEncodedContentType,
         followRedirects: true,
-        validateStatus: (s) => s != null && s < 500,
+        validateStatus: (s) => s != null && s < 600,
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,'
+              'image/avif,image/webp,image/apng,*/*;q=0.8,'
+              'application/signed-exchange;v=b3;q=0.7',
+          'Origin': 'https://store.ahram.org.eg',
+          'Referer': 'https://store.ahram.org.eg/ar/Login/Login',
+          'Upgrade-Insecure-Requests': '1',
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-user': '?1',
+          'sec-fetch-dest': 'document',
+        },
       ),
     );
 
-    if (resp.realUri.path.toLowerCase().contains('login')) {
-      throw Exception('فشل تسجيل الدخول - تحقق من البيانات');
+    // 4. التحقق من النجاح (السيرفر بيرجع للصفحة الرئيسية عند النجاح)
+    final finalUrl = resp.realUri.toString().toLowerCase();
+    if (finalUrl.contains('/login')) {
+      final respBody = resp.data?.toString() ?? '';
+      final errMatch = RegExp(
+        r'class="[^"]*(?:error|danger|validation|alert)[^"]*"[^>]*>\s*([^<]+)',
+      ).firstMatch(respBody);
+      final errMsg = errMatch?.group(1)?.trim();
+      if (errMsg != null && errMsg.isNotEmpty) {
+        throw Exception('فشل تسجيل الدخول: $errMsg');
+      }
+      throw Exception(
+          'فشل تسجيل الدخول - تحقق من البيانات\nURL: ${resp.realUri.path}');
     }
   }
 
@@ -150,8 +194,7 @@ class AhramService {
             responseType: ResponseType.bytes,
             headers: {
               'Referer': '$baseUrl/flip/$flipId/$date/mobile',
-              'Accept':
-                  'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+              'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
               'sec-fetch-site': 'same-origin',
               'sec-fetch-mode': 'no-cors',
               'sec-fetch-dest': 'image',
@@ -168,17 +211,13 @@ class AhramService {
         final bytes = Uint8List.fromList(resp.data!);
         if (bytes.length < minSize) {
           onLog?.call(
-            i,
-            'توقف (${(bytes.length / 1024).toStringAsFixed(0)}KB فقط)',
-          );
+              i, 'توقف (${(bytes.length / 1024).toStringAsFixed(0)}KB فقط)');
           break;
         }
 
         pages.add(bytes);
         onLog?.call(
-          i,
-          '✓ صفحة $i (${(bytes.length / 1024).toStringAsFixed(0)}KB)',
-        );
+            i, '✓ صفحة $i (${(bytes.length / 1024).toStringAsFixed(0)}KB)');
       } catch (e) {
         onLog?.call(i, 'خطأ: $e');
         break;
@@ -194,8 +233,8 @@ class AhramService {
 
     final doc = pw.Document(compress: true);
 
-    for (var i = 0; i < images.length; i++) {
-      final image = pw.MemoryImage(images[i]);
+    for (final bytes in images) {
+      final image = pw.MemoryImage(bytes);
       doc.addPage(
         pw.Page(
           pageFormat: PdfPageFormat(
