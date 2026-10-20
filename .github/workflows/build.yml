@@ -25,6 +25,66 @@ jobs:
       - name: Generate platform folders
         run: flutter create --org com.ahram --project-name ahram_reader .
 
+      - name: Generate app icon
+        run: |
+          pip install Pillow
+          mkdir -p assets
+          python3 <<'PY'
+          from PIL import Image, ImageDraw
+
+          size = 1024
+          img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+          draw = ImageDraw.Draw(img)
+
+          # خلفية حمراء بحواف دائرية
+          draw.rounded_rectangle([(0, 0), (size - 1, size - 1)],
+                                 radius=230, fill=(211, 47, 47, 255))
+
+          cx, cy = size // 2, size // 2 + 30
+
+          # الصفحة اليسرى
+          draw.polygon([
+              (cx - 380, cy - 140),
+              (cx - 30, cy - 200),
+              (cx - 30, cy + 280),
+              (cx - 380, cy + 220),
+          ], fill=(255, 255, 255))
+
+          # الصفحة اليمنى
+          draw.polygon([
+              (cx + 30, cy - 200),
+              (cx + 380, cy - 140),
+              (cx + 380, cy + 220),
+              (cx + 30, cy + 280),
+          ], fill=(255, 255, 255))
+
+          # خطوط النص على اليسار
+          line_color = (211, 47, 47, 255)
+          for i in range(4):
+              y = cy - 80 + i * 70
+              draw.rounded_rectangle([(cx - 320, y), (cx - 90, y + 20)],
+                                     radius=10, fill=line_color)
+
+          # خطوط النص على اليمين
+          for i in range(4):
+              y = cy - 80 + i * 70
+              draw.rounded_rectangle([(cx + 90, y), (cx + 320, y + 20)],
+                                     radius=10, fill=line_color)
+
+          # كعب الكتاب
+          draw.rectangle([(cx - 30, cy - 200), (cx + 30, cy + 280)],
+                         fill=(183, 28, 28, 255))
+
+          img.save('assets/icon.png')
+          print("✅ Icon saved")
+          PY
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate launcher icons
+        run: dart run flutter_launcher_icons
+
       - name: Patch AndroidManifest (Internet & Network)
         run: |
           mkdir -p android/app/src/main/res/xml
@@ -43,15 +103,10 @@ jobs:
           path = 'android/app/src/main/AndroidManifest.xml'
           with open(path, 'r') as f:
               content = f.read()
-
           if 'android.permission.INTERNET' not in content:
               content = content.replace('<application', '<uses-permission android:name="android.permission.INTERNET" />\n    <application')
-              print("✅ Added INTERNET permission")
-
           if 'android:networkSecurityConfig' not in content:
               content = content.replace('<application', '<application\n        android:networkSecurityConfig="@xml/network_security_config"')
-              print("✅ Linked network_security_config.xml")
-
           with open(path, 'w') as f:
               f.write(content)
           PY
@@ -63,26 +118,17 @@ jobs:
           path = pathlib.Path("android/settings.gradle")
           if not path.exists():
               raise SystemExit("settings.gradle not found")
-
           content = path.read_text()
           pattern = r'(id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'])[^"\']+(["\'])'
-
           if re.search(pattern, content):
               content = re.sub(pattern, r'\g<1>2.0.10\g<2>', content)
-              print("✅ Updated Kotlin version to 2.0.10")
           else:
-              plugins_match = re.search(r'(plugins\s*\{)', content)
-              if plugins_match:
-                  insert_pos = plugins_match.end()
-                  kotlin_line = '\n    id "org.jetbrains.kotlin.android" version "2.0.10" apply false'
-                  content = content[:insert_pos] + kotlin_line + content[insert_pos:]
-                  print("✅ Injected Kotlin plugin line")
-
+              m = re.search(r'(plugins\s*\{)', content)
+              if m:
+                  pos = m.end()
+                  content = content[:pos] + '\n    id "org.jetbrains.kotlin.android" version "2.0.10" apply false' + content[pos:]
           path.write_text(content)
           PY
-
-      - name: Install dependencies
-        run: flutter pub get
 
       - name: Build APK
         run: flutter build apk --release
