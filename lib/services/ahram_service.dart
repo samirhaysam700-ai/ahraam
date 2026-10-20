@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/issue.dart';
@@ -12,11 +14,18 @@ class AhramService {
   static const maxPages = 200;
 
   final Dio _dio;
+  final PersistCookieJar _cookieJar;
 
-  AhramService._(this._dio);
+  AhramService._(this._dio, this._cookieJar);
 
   static Future<AhramService> create() async {
-    final jar = CookieJar();
+    final dir = await getApplicationDocumentsDirectory();
+    final cookiePath = '${dir.path}/cookies/';
+    final cookieJar = PersistCookieJar(
+      ignoreExpires: true,
+      storage: FileStorage(cookiePath),
+    );
+    
     final dio = Dio(BaseOptions(
       baseUrl: baseUrl,
       connectTimeout: const Duration(seconds: 30),
@@ -29,13 +38,20 @@ class AhramService {
         'x-requested-with': 'mark.via.gp',
       },
     ));
-    dio.interceptors.add(CookieManager(jar));
-    return AhramService._(dio);
+    dio.interceptors.add(CookieManager(cookieJar));
+    return AhramService._(dio, cookieJar);
   }
 
-  // ========== تسجيل الدخول ==========
+  Future<bool> hasSavedSession() async {
+    final cookies = await _cookieJar.loadForRequest(Uri.parse(baseUrl));
+    return cookies.any((c) => c.name == '.AspNetCore.Session');
+  }
+
+  Future<void> logout() async {
+    await _cookieJar.deleteAll();
+  }
+
   Future<void> login(String username, String password) async {
-    // 1. جلب صفحة الدخول والتوكن
     final loginResp = await _dio.get(
       '/ar/Login/Login',
       options: Options(
@@ -56,21 +72,19 @@ class AhramService {
     }
     final token = tokenMatch.group(1)!;
 
-    // 2. تجهيز بيانات الدخول
     final body = {
       'UserName': username,
       'UserPw': password,
       '__RequestVerificationToken': token,
     };
 
-    // 3. طلب الدخول - مع تعطيل الـ Redirect التلقائي
     final resp = await _dio.post(
       '/ar/Login/Login',
       data: body,
       options: Options(
         contentType: Headers.formUrlEncodedContentType,
-        followRedirects: false, // 👈 السطر ده هو السر
-        validateStatus: (s) => s != null && s < 400, // 👈 السماح بـ 200 و 302 فقط
+        followRedirects: false, 
+        validateStatus: (s) => s != null && s < 400, 
         headers: {
           'Origin': 'https://store.ahram.org.eg',
           'Referer': 'https://store.ahram.org.eg/ar/Login/Login',
@@ -79,9 +93,6 @@ class AhramService {
       ),
     );
 
-    // 4. التحقق من النجاح
-    // السيرفر بيرجع 302 (Redirect) لو الدخول نجح
-    // وبيرجع 200 لو الدخول فشل (عشان يعرض صفحة اللوجين تاني)
     if (resp.statusCode == 200) {
       final respBody = resp.data?.toString() ?? '';
       final errMatch = RegExp(
@@ -92,23 +103,12 @@ class AhramService {
       if (errMsg != null && errMsg.isNotEmpty) {
         throw Exception('فشل تسجيل الدخول: $errMsg');
       }
-      
-      // لو مفيش رسالة خطأ واضحة بس الحالة 200، يبقى فشل
-      throw Exception('فشل تسجيل الدخول - تأكد من صحة اسم المستخدم وكلمة المرور');
+      throw Exception('فشل تسجيل الدخول - تأكد من صحة البيانات');
     }
 
-    // لو وصلنا هنا، يبقى الحالة 302 (أو 301) والدخول نجح
-    // بنجهز Dio عشان يروح للصفحة الرئيسية عشان ياخد الكوكيز بتاعت الجلسة
-    await _dio.get(
-      '/',
-      options: Options(
-        followRedirects: true,
-        validateStatus: (s) => s != null && s < 500,
-      ),
-    );
+    await _dio.get('/', options: Options(followRedirects: true, validateStatus: (s) => s != null && s < 500));
   }
 
-  // ========== جلب الإصدارات ==========
   Future<List<Issue>> fetchIssues(List<String> codeBuys) async {
     final all = <Issue>[];
     final seen = <String>{};
@@ -148,49 +148,36 @@ class AhramService {
     return all;
   }
 
-  // ========== تفعيل الجلسة ==========
   Future<void> activateSession(String flipId, String date) async {
     final readerUrl = '$baseUrl/flip/$flipId/$date/mobile';
     try {
-      await _dio.get(
-        '/flip/$flipId/$date/mobile',
-        options: Options(
-          followRedirects: true,
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
+      await _dio.get('/flip/$flipId/$date/mobile', options: Options(followRedirects: true, validateStatus: (s) => s != null && s < 500));
     } catch (_) {}
-
     try {
-      await _dio.post(
-        '/ar/MyLibrary/SetSessionValue',
-        options: Options(
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest',
-            'Referer': readerUrl,
-          },
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
+      await _dio.post('/ar/MyLibrary/SetSessionValue', options: Options(headers: {'X-Requested-With': 'XMLHttpRequest', 'Referer': readerUrl}, validateStatus: (s) => s != null && s < 500));
     } catch (_) {}
-
     await Future.delayed(const Duration(seconds: 1));
   }
 
-  // ========== تحميل الصفحات ==========
-  Future<List<Uint8List>> downloadPages(
+  // دالة جديدة: بتحمل وتعمل PDF وتحفظه في ذاكرة التطبيق
+  Future<String> downloadAndSavePdf(
     String flipId,
     String date, {
-    void Function(int page, String message)? onLog,
+    void Function(double progress, String message)? onProgress,
   }) async {
+    await activateSession(flipId, date);
+
     final pages = <Uint8List>[];
+    int page = 1;
+    const expectedPages = 16;
 
-    for (var i = 1; i <= maxPages; i++) {
+    while (page <= maxPages) {
+      final progress = ((page - 1) / expectedPages).clamp(0.0, 0.95);
+      onProgress?.call(progress, 'جاري تحميل صفحة $page...');
+      
       try {
-        onLog?.call(i, 'تحميل صفحة $i...');
-
         final resp = await _dio.get<List<int>>(
-          '/flip/$flipId/files/mobile/$i.jpg',
+          '/flip/$flipId/files/mobile/$page.jpg',
           options: Options(
             responseType: ResponseType.bytes,
             headers: {
@@ -204,53 +191,56 @@ class AhramService {
           ),
         );
 
-        if (resp.statusCode != 200) {
-          onLog?.call(i, 'توقف (${resp.statusCode})');
-          break;
-        }
-
+        if (resp.statusCode != 200) break;
         final bytes = Uint8List.fromList(resp.data!);
-        if (bytes.length < minSize) {
-          onLog?.call(
-              i, 'توقف (${(bytes.length / 1024).toStringAsFixed(0)}KB فقط)');
-          break;
-        }
+        if (bytes.length < minSize) break;
 
         pages.add(bytes);
-        onLog?.call(
-            i, '✓ صفحة $i (${(bytes.length / 1024).toStringAsFixed(0)}KB)');
+        page++;
       } catch (e) {
-        onLog?.call(i, 'خطأ: $e');
         break;
       }
     }
 
-    return pages;
+    if (pages.isEmpty) throw Exception('لم يتم تحميل أي صفحة');
+
+    onProgress?.call(0.95, 'جاري بناء ملف PDF...');
+    final pdfBytes = await _buildPdf(pages);
+
+    onProgress?.call(0.98, 'جاري الحفظ...');
+    final dir = await getApplicationDocumentsDirectory();
+    final pdfDir = Directory('${dir.path}/pdfs');
+    if (!await pdfDir.exists()) await pdfDir.create(recursive: true);
+
+    final fileName = 'ahram_${flipId}_$date.pdf';
+    final file = File('${pdfDir.path}/$fileName');
+    await file.writeAsBytes(pdfBytes);
+
+    onProgress?.call(1.0, 'اكتمل التحميل');
+    return file.path;
   }
 
-  // ========== بناء PDF ==========
-  Future<Uint8List> buildPdf(List<Uint8List> images) async {
-    if (images.isEmpty) throw Exception('لا توجد صور');
+  Future<List<File>> getSavedPdfs() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final pdfDir = Directory('${dir.path}/pdfs');
+    if (!await pdfDir.exists()) return [];
+    
+    final files = pdfDir.listSync().whereType<File>().where((f) => f.path.endsWith('.pdf')).toList();
+    files.sort((a, b) => b.path.compareTo(a.path));
+    return files;
+  }
 
+  Future<Uint8List> _buildPdf(List<Uint8List> images) async {
     final doc = pw.Document(compress: true);
-
     for (final bytes in images) {
       final image = pw.MemoryImage(bytes);
       doc.addPage(
         pw.Page(
-          pageFormat: PdfPageFormat(
-            image.width!.toDouble(),
-            image.height!.toDouble(),
-            marginAll: 0,
-          ),
-          build: (ctx) => pw.FullPage(
-            ignoreMargins: true,
-            child: pw.Image(image, fit: pw.BoxFit.contain),
-          ),
+          pageFormat: PdfPageFormat(image.width!.toDouble(), image.height!.toDouble(), marginAll: 0),
+          build: (ctx) => pw.FullPage(ignoreMargins: true, child: pw.Image(image, fit: pw.BoxFit.contain)),
         ),
       );
     }
-
     return await doc.save();
   }
 }
