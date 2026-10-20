@@ -22,6 +22,12 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Generate platform folders
+        run: flutter create --org com.ahram --project-name ahram_reader .
+
+      - name: Install dependencies
+        run: flutter pub get
+
       - name: Generate signing key
         run: |
           keytool -genkeypair -v \
@@ -45,12 +51,12 @@ jobs:
       - name: Patch build.gradle for signing
         run: |
           python3 - <<'PY'
-          import re
+          import re, os
           path = 'android/app/build.gradle'
           with open(path, 'r') as f:
               content = f.read()
-          # Add signing config before buildTypes
-          signing_block = '''
+
+          signing_block = """
               signingConfigs {
                   release {
                       keyAlias 'upload'
@@ -59,22 +65,28 @@ jobs:
                       storePassword 'ahram123'
                   }
               }
-          '''
-          content = content.replace('buildTypes {', signing_block + '\n    buildTypes {', 1)
-          content = content.replace(
-              'buildTypes {\n        release {',
-              'buildTypes {\n        release {\n            signingConfig signingConfigs.release',
-              1
-          )
+          """
+
+          if 'signingConfigs' not in content:
+              content = content.replace('buildTypes {', signing_block + '\n    buildTypes {', 1)
+
+          if 'signingConfig signingConfigs.release' not in content:
+              content = content.replace(
+                  'buildTypes {\n        release {',
+                  'buildTypes {\n        release {\n            signingConfig signingConfigs.release',
+                  1
+              )
+
           with open(path, 'w') as f:
               f.write(content)
-          print("Patched build.gradle")
+          print("✅ Patched build.gradle")
           PY
 
-      - run: flutter pub get
-      - run: flutter build apk --release
+      - name: Build APK
+        run: flutter build apk --release
 
       - uses: actions/upload-artifact@v4
         with:
           name: ahram-reader-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
