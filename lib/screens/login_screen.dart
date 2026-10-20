@@ -35,15 +35,39 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final service = await AhramService.create();
-      await service.login(_userCtrl.text.trim(), _passCtrl.text);
+      final username = _userCtrl.text.trim();
+      await service.login(username, _passCtrl.text);
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('username', _userCtrl.text.trim());
+      await prefs.setString('username', username);
 
       if (!mounted) return;
+
+      // 🎉 إظهار رسالة نجاح
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('تم تسجيل الدخول بنجاح', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      // 🚀 الانتقال مباشرة لصفحة المكتبة
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => IssuesScreen(service: service)),
+        MaterialPageRoute(
+          builder: (_) => IssuesScreen(
+            service: service,
+            username: username,
+          ),
+        ),
       );
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
@@ -62,12 +86,10 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 60),
-              Icon(Icons.menu_book,
-                  size: 90, color: Colors.red.shade700),
+              Icon(Icons.menu_book, size: 90, color: Colors.red.shade700),
               const SizedBox(height: 16),
               const Text('قارئ الأهرام',
-                  style: TextStyle(
-                      fontSize: 26, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
               TextField(
                 controller: _userCtrl,
@@ -113,8 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     foregroundColor: Colors.white,
                   ),
                   child: _loading
-                      ? const CircularProgressIndicator(
-                          color: Colors.white)
+                      ? const CircularProgressIndicator(color: Colors.white)
                       : const Text('تسجيل الدخول',
                           style: TextStyle(fontSize: 18)),
                 ),
