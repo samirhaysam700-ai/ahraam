@@ -25,14 +25,33 @@ jobs:
       - name: Generate platform folders
         run: flutter create --org com.ahram --project-name ahram_reader .
 
-      - name: Update Kotlin version
+      - name: Force Kotlin 2.0.10 in settings.gradle
         run: |
-          if [ -f android/settings.gradle ]; then
-            sed -i "s/id 'org.jetbrains.kotlin.android' version '[^']*'/id 'org.jetbrains.kotlin.android' version '2.0.10'/" android/settings.gradle
-          fi
-          if [ -f android/build.gradle ]; then
-            sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '2.0.10'/" android/build.gradle
-          fi
+          python3 <<'PY'
+          import re, pathlib
+
+          path = pathlib.Path("android/settings.gradle")
+          if not path.exists():
+              raise SystemExit("settings.gradle not found")
+
+          content = path.read_text()
+          pattern = r'(id\s+["\']org\.jetbrains\.kotlin\.android["\']\s+version\s+["\'])[^"\']+(["\'])'
+
+          if re.search(pattern, content):
+              content = re.sub(pattern, r'\g<1>2.0.10\g<2>', content)
+              print("✅ Updated existing Kotlin plugin version to 2.0.10")
+          else:
+              plugins_match = re.search(r'(plugins\s*\{)', content)
+              if plugins_match:
+                  insert_pos = plugins_match.end()
+                  kotlin_line = '\n    id "org.jetbrains.kotlin.android" version "2.0.10" apply false'
+                  content = content[:insert_pos] + kotlin_line + content[insert_pos:]
+                  print("✅ Injected Kotlin plugin line with version 2.0.10")
+              else:
+                  raise SystemExit("❌ Could not find plugins block")
+
+          path.write_text(content)
+          PY
 
       - name: Install dependencies
         run: flutter pub get
